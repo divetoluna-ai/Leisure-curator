@@ -35,25 +35,27 @@ except Exception as e:
     st.error(f"⚠️ 설정 오류: {str(e)}")
     st.stop()
 
-# --- 4. 모델 연결 (디버깅 강화) ---
-def get_chat_model(system_instruction):
-    # 1순위: Flash (빠름/무료), 2순위: Pro (안정/무료)
-    candidates = ["gemini-1.5-flash", "gemini-pro"]
+# --- 4. 모델 연결 (자동 우회 및 디버깅) ---
+def get_chat_model():
+    # 시도할 모델 순서: 최신 Flash -> 표준 Pro -> 구형 Pro
+    candidates = ["gemini-1.5-flash", "gemini-pro", "gemini-1.0-pro"]
+    last_error = ""
     
     for model_name in candidates:
         try:
             model = genai.GenerativeModel(model_name)
             chat = model.start_chat(history=[])
+            # 연결 테스트
             return chat, model_name
-        except Exception:
+        except Exception as e:
+            last_error = str(e)
             continue
             
-    return None, None
+    return None, last_error
 
 # --- 5. 데이터 저장 및 페르소나 ---
 DATA_FILE = "user_data_log.csv"
 def save_to_csv(contact, history, score=None):
-    # (이전과 동일한 로직)
     conv = ""
     for msg in history:
         role = "AI" if msg['role'] == 'model' else "User"
@@ -71,7 +73,7 @@ if "messages" not in st.session_state: st.session_state.messages = []
 if "user_contact" not in st.session_state: st.session_state.user_contact = ""
 if "is_admin" not in st.session_state: st.session_state.is_admin = False
 
-# 사이드바 (종료 버튼 이동)
+# 사이드바
 with st.sidebar:
     st.title("Menu")
     if st.session_state.step == "chat_mode":
@@ -92,6 +94,8 @@ if st.session_state.is_admin:
     st.title("🔐 Admin Dashboard")
     if os.path.exists(DATA_FILE):
         st.dataframe(pd.read_csv(DATA_FILE), use_container_width=True)
+        csv = pd.read_csv(DATA_FILE).to_csv(index=False).encode('utf-8-sig')
+        st.download_button("데이터 다운로드", csv, "data.csv", "text/csv")
     else: st.warning("데이터 없음")
     if st.button("Logout"): st.session_state.is_admin = False; st.rerun()
 
@@ -116,7 +120,7 @@ else:
         # 모델 연결 시도
         if "chat_session" not in st.session_state:
             with st.spinner("AI 엔진 가동 중..."):
-                chat, model_name = get_chat_model(SYSTEM_INSTRUCTION)
+                chat, model_name = get_chat_model()
                 if chat:
                     st.session_state.chat_session = chat
                     try:
@@ -124,18 +128,12 @@ else:
                         msg = f"{SYSTEM_INSTRUCTION}\n\n(시스템: 따뜻한 첫 인사를 건네세요.)"
                         res = st.session_state.chat_session.send_message(msg)
                         st.session_state.messages.append({"role": "model", "parts": [res.text]})
+                        # 성공 시 어떤 모델인지 작게 표시 (디버깅용)
+                        st.toast(f"연결 성공: {model_name}", icon="✅")
                     except Exception as e:
                         st.error(f"첫 메시지 오류: {e}")
                 else:
-                    # [핵심] 연결 실패 시 사용 가능한 모델 목록을 보여줌 (디버깅용)
-                    st.error("❌ 모든 AI 모델 연결 실패. 서버 라이브러리 버전이 낮습니다.")
-                    st.write("▼ 현재 서버에서 인식하는 모델 목록:")
-                    try:
-                        for m in genai.list_models():
-                            if 'generateContent' in m.supported_generation_methods:
-                                st.write(f"- {m.name}")
-                    except:
-                        st.write("모델 목록조차 불러올 수 없음 (라이브러리 심각한 구버전)")
+                    st.error("❌ AI 모델 연결 실패. 서버 라이브러리 업데이트가 필요합니다.")
                     st.stop()
 
         for msg in st.session_state.messages:
