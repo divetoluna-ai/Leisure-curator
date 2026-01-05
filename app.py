@@ -7,7 +7,6 @@ from datetime import datetime
 # --- 1. 기본 설정 ---
 st.set_page_config(page_title="Leisure DNA", layout="wide", page_icon="🧬")
 
-# 디자인 적용
 st.markdown("""
     <style>
     .stApp { background-color: #F5F5F7; color: #1D1D1F; }
@@ -16,8 +15,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. 보안 및 API 설정 ---
-# API 키와 관리자 계정 정보를 Secrets에서 가져옵니다.
+# --- 2. 보안 및 API 설정 (Flash 모델 강제) ---
 try:
     if "GOOGLE_API_KEY" in st.secrets:
         genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
@@ -25,7 +23,7 @@ try:
         st.error("🚨 API 키 설정이 필요합니다.")
         st.stop()
         
-    # 관리자 정보 로드 (없으면 기본값 경고)
+    # 관리자 정보 (Secrets에서 가져옴)
     ADMIN_ID = st.secrets.get("ADMIN_ID", "admin") 
     ADMIN_PW = st.secrets.get("ADMIN_PW", "0000")
     
@@ -80,8 +78,6 @@ if "is_admin" not in st.session_state:
 # --- 6. 사이드바 (관리자 로그인) ---
 with st.sidebar:
     st.header("🔧 Settings")
-    
-    # 관리자 모드 토글 (체크해야 로그인 창이 뜸)
     admin_mode = st.checkbox("관리자 모드 접속")
     
     if admin_mode:
@@ -95,9 +91,8 @@ with st.sidebar:
                 st.success("접속 성공!")
                 st.rerun()
             else:
-                st.error("아이디 또는 비밀번호가 틀렸습니다.")
+                st.error("정보가 일치하지 않습니다.")
     
-    # 로그아웃 버튼
     if st.session_state.is_admin:
         if st.button("로그아웃"):
             st.session_state.is_admin = False
@@ -105,22 +100,21 @@ with st.sidebar:
 
 # --- 7. 메인 화면 로직 ---
 
-# [모드 A] 관리자 대시보드 (로그인 성공 시에만 보임)
+# [모드 A] 관리자 대시보드
 if st.session_state.is_admin:
     st.title("🔐 관리자 전용 대시보드")
-    st.info(f"관리자 '{ADMIN_ID}' 계정으로 접속 중입니다.")
+    st.info(f"관리자 계정으로 접속 중입니다.")
     
     if os.path.exists(DATA_FILE):
         df = pd.read_csv(DATA_FILE)
         st.write("### 📊 수집된 사용자 데이터")
         st.dataframe(df, use_container_width=True)
-        
         csv = df.to_csv(index=False).encode('utf-8-sig')
         st.download_button("데이터 다운로드 (CSV)", csv, "leisure_data.csv", "text/csv")
     else:
         st.warning("아직 수집된 데이터가 없습니다.")
 
-# [모드 B] 일반 사용자 화면 (정보 입력 -> 채팅)
+# [모드 B] 일반 사용자 화면
 else:
     # 1. 정보 입력 단계
     if st.session_state.step == "input_form":
@@ -142,7 +136,7 @@ else:
                     st.session_state.step = "chat_mode"
                     st.rerun()
                 else:
-                    st.error("성별/연령대와 지역은 필수입니다.")
+                    st.error("필수 정보를 입력해주세요.")
 
     # 2. 채팅 단계
     elif st.session_state.step == "chat_mode":
@@ -150,8 +144,8 @@ else:
         
         if "chat_session" not in st.session_state:
             try:
-                # [수정] 표준 모델 gemini-pro 사용 (안정성 최우선)
-                model = genai.GenerativeModel("gemini-pro") 
+                # 🚀 여기가 핵심입니다: 가성비 갑 'gemini-1.5-flash' 모델 사용!
+                model = genai.GenerativeModel("gemini-1.5-flash") 
                 st.session_state.chat_session = model.start_chat(history=[])
                 
                 # 시스템 프롬프트 주입
