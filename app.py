@@ -4,10 +4,10 @@ import pandas as pd
 import os
 from datetime import datetime
 
-# --- 1. 페이지 설정 (반드시 최상단) ---
+# --- 1. 페이지 설정 ---
 st.set_page_config(page_title="Leisure DNA: Premium", layout="wide", page_icon="🧬")
 
-# --- 2. 프리미엄 디자인 CSS ---
+# --- 2. 프리미엄 디자인 CSS (유지) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
@@ -40,7 +40,26 @@ except Exception as e:
     st.error(f"설정 오류: {e}")
     st.stop()
 
-# --- 4. 데이터 저장 함수 ---
+# --- 4. [핵심] 모델 자동 연결 함수 (에러 방지) ---
+def get_chat_model(system_instruction):
+    # 시도할 모델 순서: 최신 Flash -> 표준 Pro -> 구형 1.0
+    model_candidates = ["gemini-1.5-flash", "gemini-pro", "gemini-1.0-pro"]
+    
+    for model_name in model_candidates:
+        try:
+            # 모델 생성 시도
+            model = genai.GenerativeModel(model_name)
+            chat = model.start_chat(history=[])
+            
+            # 연결 테스트 (인사말 생성 시도 안함, 객체 생성만 확인)
+            # system_instruction을 첫 메시지로 보내기 위해 반환
+            return chat, model_name
+        except Exception:
+            continue # 실패하면 다음 모델로 넘어감
+            
+    return None, None # 모든 모델 실패
+
+# --- 5. 데이터 저장 함수 ---
 DATA_FILE = "user_data_log.csv"
 
 def save_to_csv(contact_info, chat_history, satisfaction=None):
@@ -51,7 +70,7 @@ def save_to_csv(contact_info, chat_history, satisfaction=None):
 
     new_data = {
         "timestamp": [datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
-        "contact_info": [contact_info], # 전화번호/이메일
+        "contact_info": [contact_info],
         "full_conversation": [full_conversation],
         "satisfaction_score": [satisfaction if satisfaction else "N/A"]
     }
@@ -62,26 +81,24 @@ def save_to_csv(contact_info, chat_history, satisfaction=None):
     else:
         df_new.to_csv(DATA_FILE, mode='a', header=False, index=False, encoding='utf-8-sig')
 
-# --- 5. 페르소나 (자연스러운 수집) ---
+# --- 6. 페르소나 (자연스러운 수집) ---
 SYSTEM_INSTRUCTION = """
 당신은 'AI 프리미엄 라이프스타일 큐레이터'입니다.
 기계적인 설문조사가 아닌, **자연스러운 대화**를 통해 사용자의 취향을 파악하고 최적의 장소를 추천하십시오.
 
-[대화 프로세스] - 반드시 순서대로 진행하며 한 번에 하나의 질문만 하십시오.
+[대화 프로세스]
 1. **오프닝:** 날씨, 시간대, 기분에 맞춘 따뜻한 인사로 시작 (정보를 바로 묻지 말 것).
-2. **Phase 1 (기본):** 대화 흐름 속에서 자연스럽게 성별, 연령대, 거주/활동 지역을 물어보십시오.
-3. **Phase 2 (취향):** 누구와 함께하는지, 어떤 분위기(힐링/액티비티)를 원하는지 물어보십시오.
-4. **Phase 3 (예산):** 실례가 안 된다면 예산대는 어느 정도 생각하시는지 정중히 물어보십시오.
-5. **Phase 4 (추천):** 모든 정보가 파악되면, 구글 맵 평점 4.5 이상의 실존 장소를 추천하십시오.
-
-[주의사항]
-- 사용자가 질문에 답하면 반드시 "아, 그렇군요", "좋은 선택이시네요"와 같이 공감한 후 다음 질문을 하십시오.
-- 절대 리스트 형식으로 질문을 나열하지 마십시오. 친구와 대화하듯 하십시오.
+2. **정보 수집 (Phase 1~3):** 대화 흐름 속에서 자연스럽게 아래 정보를 하나씩 물어보십시오. (한 번에 질문 금지)
+   - 성별 및 연령대
+   - 거주/활동 지역
+   - 동반자 및 분위기(힐링/액티비티)
+   - 예산
+3. **추천 (Phase 4):** 모든 정보가 파악되면, 구글 맵 평점 4.5 이상의 실존 장소를 추천하십시오.
 """
 
-# --- 6. 상태 초기화 ---
+# --- 7. 상태 초기화 ---
 if "step" not in st.session_state:
-    st.session_state.step = "login" # 초기 상태: 로그인/동의
+    st.session_state.step = "login"
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "user_contact" not in st.session_state:
@@ -89,7 +106,7 @@ if "user_contact" not in st.session_state:
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
 
-# --- 7. 사이드바 (관리자) ---
+# --- 8. 사이드바 (관리자) ---
 with st.sidebar:
     st.title("⚙️ SYSTEM")
     st.markdown("---")
@@ -111,7 +128,7 @@ with st.sidebar:
             st.session_state.is_admin = False
             st.rerun()
 
-# --- 8. 메인 화면 로직 ---
+# --- 9. 메인 화면 로직 ---
 
 # [모드 A] 관리자 대시보드
 if st.session_state.is_admin:
@@ -137,13 +154,11 @@ else:
         
         with st.form("login_form"):
             st.markdown("### 🔐 시작하기")
-            contact = st.text_input("휴대폰 번호 또는 이메일", placeholder="010-1234-5678 or email@example.com")
+            contact = st.text_input("휴대폰 번호 또는 이메일", placeholder="010-XXXX-XXXX")
             
             st.markdown("---")
             st.markdown("#### 개인정보 수집 및 이용 동의 (필수)")
-            st.caption("1. 수집 목적: AI 맞춤형 여가 큐레이션 제공 및 상담 이력 관리")
-            st.caption("2. 수집 항목: 연락처, 대화 내용")
-            st.caption("3. 보유 기간: 서비스 종료 또는 사용자 파기 요청 시까지")
+            st.caption("1. 수집 목적: AI 맞춤형 여가 큐레이션 제공\n2. 수집 항목: 연락처, 대화 내용\n3. 보유 기간: 사용자 파기 요청 시까지")
             agree = st.checkbox("위 내용을 확인하였으며, 개인정보 수집 및 이용에 동의합니다.")
             
             st.markdown("<br>", unsafe_allow_html=True)
@@ -160,27 +175,27 @@ else:
     # 2. 채팅 단계 (자연스러운 수집)
     elif st.session_state.step == "chat_mode":
         st.title("🏛️ Lifestyle Curator")
-        st.caption("AI Curator is ready based on your agreement.")
+        st.caption("AI analyzes your taste through conversation.")
         st.markdown("---")
         
-        # 모델 초기화 (안정적인 gemini-pro 사용)
+        # 모델 초기화 (자동 우회 로직 적용)
         if "chat_session" not in st.session_state:
-            try:
-                # 404 에러 방지를 위해 표준 모델 사용
-                model = genai.GenerativeModel("gemini-pro") 
-                st.session_state.chat_session = model.start_chat(history=[])
+            with st.spinner("AI 엔진 연결 중..."):
+                chat_session, connected_model = get_chat_model(SYSTEM_INSTRUCTION)
                 
-                # AI가 먼저 말을 걸도록 시스템 프롬프트 주입
-                # gemini-pro는 system_instruction을 직접 지원 안 할 수 있어 첫 메시지로 컨텍스트 전달
-                initial_context = f"{SYSTEM_INSTRUCTION}\n\n(시스템: 지금 바로 사용자의 상황에 맞는 따뜻한 첫 인사를 건네며 대화를 시작하세요.)"
-                response = st.session_state.chat_session.send_message(initial_context)
-                
-                # 첫 인사 저장
-                st.session_state.messages.append({"role": "model", "parts": [response.text]})
-                
-            except Exception as e:
-                st.error(f"시스템 연결 오류: {e}")
-                st.stop()
+                if chat_session:
+                    st.session_state.chat_session = chat_session
+                    # 연결 성공 시 첫 인사 메시지 생성 (시스템 프롬프트 주입)
+                    try:
+                        initial_msg = f"{SYSTEM_INSTRUCTION}\n\n(시스템: 지금 바로 사용자의 상황(시간/날씨)에 맞는 따뜻한 첫 인사를 건네며 대화를 시작하세요. 정보를 먼저 묻지 마세요.)"
+                        response = st.session_state.chat_session.send_message(initial_msg)
+                        st.session_state.messages.append({"role": "model", "parts": [response.text]})
+                    except Exception:
+                        # 혹시라도 첫 생성 실패 시 안전 메시지
+                        st.session_state.messages.append({"role": "model", "parts": ["안녕하세요! 당신만의 큐레이터입니다. 기분은 좀 어떠신가요?"]})
+                else:
+                    st.error("❌ 모든 AI 모델 연결에 실패했습니다. 잠시 후 다시 시도해주세요.")
+                    st.stop()
 
         # 채팅 기록 표시
         for msg in st.session_state.messages:
@@ -195,13 +210,15 @@ else:
                 st.markdown(prompt)
 
             with st.chat_message("assistant"):
-                # 로딩 효과 대신 깔끔하게 결과 출력
-                response = st.session_state.chat_session.send_message(prompt)
-                st.markdown(response.text)
-                st.session_state.messages.append({"role": "model", "parts": [response.text]})
-                
-                # 대화할 때마다 로그 업데이트 (연락처 정보 포함)
-                save_to_csv(st.session_state.user_contact, st.session_state.messages)
+                try:
+                    response = st.session_state.chat_session.send_message(prompt)
+                    st.markdown(response.text)
+                    st.session_state.messages.append({"role": "model", "parts": [response.text]})
+                    
+                    # 대화할 때마다 로그 업데이트
+                    save_to_csv(st.session_state.user_contact, st.session_state.messages)
+                except Exception as e:
+                    st.error("죄송합니다. 잠시 연결이 불안정합니다.")
 
         st.markdown("<br><br>", unsafe_allow_html=True)
         if st.button("상담 종료 및 평가하기 🏁"):
